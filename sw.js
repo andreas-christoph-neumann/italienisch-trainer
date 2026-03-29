@@ -1,5 +1,5 @@
 const VERSION = 'v1.0'; [cite_start]// Diese Nummer bei jedem Update ändern! [cite: 169]
-const CACHE_NAME = `vocab-${VERSION}`;
+const CACHE_NAME = `italienisch-${VERSION}`;
 const ASSETS = ['./', './index.html', './manifest.json'];
 
 // Installation: Cache befüllen
