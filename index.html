@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content">
+    <title>Italienisch Trainer Pro</title>
+    
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 15 10'><rect width='5' height='10' fill='%23009246'/><rect x='5' width='5' height='10' fill='%23ffffff'/><rect x='10' width='5' height='10' fill='%23ce2b37'/></svg>">
+<link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 15 10'><rect width='5' height='10' fill='%23009246'/><rect x='5' width='5' height='10' fill='%23ffffff'/><rect x='10' width='5' height='10' fill='%23ce2b37'/></svg>">
+    
+    <script src="https://unpkg.com/dexie/dist/dexie.js"></script>
+    <style>
+        :root {
+            --primary: #4a7c59;
+            --accent: #e87a5d;
+            --grammar: #7f8c8d;
+            --bg: #f4f4f4;
+            --card-bg: #ffffff;
+            --text: #333333;
+            --input-border: #dddddd;
+            --control-bg: #ffffff;
+            --list-item-bg: #ffffff;
+            --list-border: #eeeeee;
+            --edit-bg: #fffde7;
+        }
+
+        body.dark-mode {
+            --bg: #121212;
+            --card-bg: #1e1e1e;
+            --text: #e0e0e0;
+            --input-border: #333333;
+            --control-bg: #1e1e1e;
+            --list-item-bg: #1e1e1e;
+            --list-border: #2c2c2c;
+            --edit-bg: #2d2a16;
+        }
+
+        body { font-family: sans-serif; margin: 0; background: var(--bg); color: var(--text); display: flex; flex-direction: column; height: 100dvh; transition: background 0.3s, color 0.3s; }
+        header { background: var(--primary); color: white; padding: 0.6rem 1rem; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+        
+        body.keyboard-open header, 
+        body.keyboard-open #stats-summary { display: none !important; }
+
+        #app { flex: 1; display: flex; flex-direction: column; padding: 1rem; overflow-y: auto; }
+        
+        .score-display { font-size: 0.85rem; background: rgba(0,0,0,0.2); padding: 5px 12px; border-radius: 20px; display: flex; align-items: center; gap: 8px; }
+        .level-badge { background: var(--accent); color: #000; font-weight: bold; padding: 2px 10px; border-radius: 12px; font-size: 0.8rem; min-width: 40px; text-align: center; }
+
+        /* Filter Button & Modal */
+        #filter-btn { background: none; border: none; cursor: pointer; padding: 5px; color: white; display: flex; align-items: center; justify-content: center; }
+        #filter-btn svg { width: 18px; height: 18px; fill: currentColor; }
+        #filter-btn.active { color: var(--accent); }
+        
+        .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+        .modal-box { background: var(--card-bg); color: var(--text); padding: 1.5rem; border-radius: 15px; width: 85%; max-width: 400px; text-align: left; max-height: 80vh; overflow-y: auto; }
+        .filter-option { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--list-border); cursor: pointer; }
+        .filter-option input { width: auto; margin: 0; }
+
+        .card { background: var(--card-bg); padding: 1rem; border-radius: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); text-align: center; margin-bottom: 1rem; transition: background 0.3s; }
+        .word-prompt { font-size: 1.8rem; font-weight: bold; color: var(--text); margin-bottom: 5px; line-height: 1.2; word-break: break-word; }
+        
+        .badge-container { display: flex; justify-content: center; gap: 4px; flex-wrap: wrap; margin-top: 8px; }
+        .badge { padding: 2px 6px; border-radius: 10px; font-size: 0.7rem; color: white; font-weight: bold; text-transform: uppercase; }
+        .bg-grammar { background-color: var(--grammar); }
+        
+        .controls { padding: 0.8rem 1rem; background: var(--control-bg); border-top: 1px solid var(--input-border); transition: background 0.3s; }
+        input { width: 100%; padding: 12px; font-size: 1rem; border: 2px solid var(--input-border); border-radius: 8px; box-sizing: border-box; margin-bottom: 8px; background: var(--bg); color: var(--text); }
+        .action-btn { width: 100%; padding: 12px; background: var(--primary); color: white; border: none; border-radius: 8px; font-size: 1.1rem; cursor: pointer; }
+        .next-btn { background: #4caf50; margin-top: 0; }
+        .hidden { display: none; }
+        
+        .err-char { color: #ff4444; text-decoration: underline; font-weight: bold; }
+        .err-missing { color: #ff4444; font-weight: bold; }
+        .err-extra { color: #ff4444; text-decoration: line-through; opacity: 0.7; }
+
+        #vocab-list .vocab-item { border-bottom: 1px solid var(--list-border); padding: 10px; background: var(--list-item-bg); margin-bottom: 5px; border-radius: 5px; }
+        .inline-edit-box { display: flex; flex-direction: column; gap: 5px; background: var(--edit-bg) !important; padding: 10px; border: 1px solid var(--accent); border-radius: 8px; }
+        .list-btn { background: none; border: none; font-size: 1.1rem; cursor: pointer; padding: 5px; color: var(--text); }
+        .sync-section { background: var(--accent); color: #333; padding: 1rem; border-radius: 10px; margin-bottom: 20px; text-align: left; }
+    </style>
+</head>
+<body class="light-mode">
+
+<header id="main-header">
+    <div style="display:flex; align-items:center; gap: 8px;">
+        <button id="theme-toggle" onclick="toggleTheme()" title="Farbschema umschalten" style="background:none; border:none; color:white; font-size:1.4rem; cursor:pointer;">🌙</button>
+        <div class="score-display">
+            <span id="level-label" class="level-badge">-</span>
+            <span id="score-label">0</span>
+        </div>
+    </div>
+    
+    <div style="display:flex; align-items:center; gap: 4px;">
+        <button id="filter-btn" onclick="openFilterModal()" title="Vokabeln filtern">
+            <svg viewBox="0 0 24 24"><path d="M10 18h4v-2h-4v2zM3 6v2h18V6H3zm3 7h12v-2H6v2z"/></svg>
+        </button>
+        <button onclick="toggleView()" id="viewBtn" style="background:rgba(255,255,255,0.2); border:1px solid white; color:white; padding:5px 10px; border-radius:5px; cursor:pointer;">Verwalten</button>
+    </div>
+</header>
+
+<div id="filter-modal" class="modal-overlay hidden">
+    <div class="modal-box">
+        <h3 style="margin-top:0">Labels filtern</h3>
+        <p style="font-size:0.8rem; opacity:0.7">Nur Vokabeln mit gewählten Labels anzeigen. Nichts wählen = Alle anzeigen.</p>
+        <div id="filter-options-container"></div>
+        <button class="action-btn" style="margin-top:20px" onclick="closeFilterModal()">Fertig</button>
+    </div>
+</div>
+
+<div id="app">
+    <div id="learn-view">
+        <div id="stats-summary" style="font-size: 0.75rem; opacity: 0.7; margin-bottom: 10px; text-align: center;">Fällig: 0 | Gesamt: 0</div>
+        <div class="card">
+            <div id="direction-label" style="font-size: 0.9rem; color: var(--primary); margin-bottom: 8px; font-weight: bold; display: flex; align-items: center; justify-content: center;"></div>
+            <div class="word-prompt" id="display-prompt">Lade Vokabeln...</div>
+            <div id="display-badges" class="badge-container"></div>
+            <div id="feedback-area" style="margin-top: 15px; font-weight: bold; min-height: 1.5em; line-height: 1.6;"></div>
+        </div>
+    </div>
+
+    <div id="add-view" class="hidden">
+        <div class="sync-section">
+            <strong style="display:block; margin-bottom:5px;">☁️ GitHub Cloud-Sync</strong>
+            <input type="password" id="github-token" placeholder="GitHub Personal Access Token" style="margin-bottom:10px;">
+            <button class="action-btn" style="background:var(--primary);" onclick="syncFromGist()">Jetzt Synchronisieren (Import)</button>
+        </div>
+        <h3>Vokabeln verwalten</h3>
+        <input type="text" id="input-sv" placeholder="Italienisch">
+        <input type="text" id="input-de" placeholder="Deutsch">
+        <input type="text" id="input-tags" placeholder="Zusatzinfo (z.B. II, schw.)">
+        <button class="action-btn" onclick="addVocab()">Speichern</button>
+        <div style="display: flex; gap: 10px; margin-top: 20px;">
+            <button class="action-btn" style="background:#666; font-size: 0.8rem;" onclick="exportData()">Backup Export</button>
+            <button class="action-btn" style="background:#666; font-size: 0.8rem;" onclick="document.getElementById('importFile').click()">Backup Import</button>
+            <input type="file" id="importFile" class="hidden" accept=".json" onchange="importData(event)">
+        </div>
+        <h3 style="margin-top:25px">Vokabelliste</h3>
+        <input type="text" id="search-input" placeholder="Suchen..." oninput="renderList()">
+        <div id="vocab-list"></div>
+    </div>
+</div>
+
+<div class="controls" id="input-controls">
+    <input type="text" id="user-input" placeholder="Deine Antwort..." autocomplete="off" autocapitalize="off" spellcheck="false" data-lpignore="true">
+    <button class="action-btn" id="check-btn" onclick="checkAnswer()">Prüfen</button>
+    <button class="action-btn next-btn hidden" id="next-btn" onclick="loadNextItem()">Weiter</button>
+</div>
+
+<script>
+    const GIST_RAW_URL = 'https://gist.githubusercontent.com/andreas-christoph-neumann/eedc40fea52096a0e1167c3eba4c34ff/raw/98bd35a28d89d58a8f209911f1aa4899a1a255a2/italienisch-vokabeln.json';
+    const GIST_ID = '89c2d3c10a13278890ef930003865fe7';
+    const db = new Dexie('ItalienischDB');
+    db.version(1).stores({ items: '++id, termSource, termTarget, direction, tags, srs.dueDate' });
+
+    let currentItem = null;
+    let inlineEditingId = null;
+    let activeFilters = [];
+
+    // --- KEYBOARD LAYOUT FIX ---
+    const inputField = document.getElementById('user-input');
+    inputField.addEventListener('focus', () => document.body.classList.add('keyboard-open'));
+    inputField.addEventListener('blur', () => document.body.classList.remove('keyboard-open'));
+
+    // --- BEREINIGUNGSFUNKTION ---
+    function cleanString(str) {
+        if (!str) return "";
+        return str
+            .replace(/[\u200B-\u200D\uFEFF]/g, '')
+            .replace(/\s+/g, ' ')
+            .replace(/\s+([?.!,])/g, '$1')
+            .trim();
+    }
+
+    // --- FILTER LOGIK ---
+    async function openFilterModal() {
+        const allItems = await db.items.toArray();
+        const tagSet = new Set();
+        allItems.forEach(item => {
+            if(item.tags) item.tags.split(',').forEach(tag => tagSet.add(tag.trim()));
+        });
+        const sortedTags = Array.from(tagSet).sort();
+        const container = document.getElementById('filter-options-container');
+        container.innerHTML = sortedTags.map(tag => `
+            <label class="filter-option">
+                <input type="checkbox" value="${tag}" ${activeFilters.includes(tag) ? 'checked' : ''} onchange="toggleFilterTag('${tag}')">
+                <span>${tag}</span>
+            </label>
+        `).join('');
+        document.getElementById('filter-modal').classList.remove('hidden');
+    }
+
+    function toggleFilterTag(tag) {
+        if (activeFilters.includes(tag)) {
+            activeFilters = activeFilters.filter(t => t !== tag);
+        } else {
+            activeFilters.push(tag);
+        }
+        const btn = document.getElementById('filter-btn');
+        if (activeFilters.length > 0) btn.classList.add('active'); else btn.classList.remove('active');
+    }
+
+    function closeFilterModal() {
+        document.getElementById('filter-modal').classList.add('hidden');
+        loadNextItem();
+    }
+
+    // --- PUNKTE & LEVEL LOGIK ---
+    function getLevel(points) {
+        const thresholds = [
+            { name: "Beginner", min: 0, max: 5000 },
+            { name: "A1", min: 5000, max: 10000 },
+            { name: "A2", min: 10000, max: 20000 },
+            { name: "B1", min: 20000, max: 40000 },
+            { name: "B2", min: 40000, max: 80000 },
+            { name: "C1", min: 80000, max: 160000 },
+            { name: "C2", min: 160000, max: Infinity }
+        ];
+        for (let t of thresholds) {
+            if (points >= t.min && points < t.max) {
+                if (t.name === "C2") return "C2";
+                let subLevel = Math.floor((points - t.min) / ((t.max - t.min) / 10));
+                return `${t.name}.${subLevel}`;
+            }
+        }
+        return "C2";
+    }
+
+    async function updateScoreDisplay() {
+        const allItems = await db.items.toArray();
+        const score = allItems.reduce((sum, i) => sum + Math.min((i.srs?.stage || 1) - 1, 5), 0);
+        document.getElementById('score-label').innerText = `${score.toLocaleString()}`;
+        document.getElementById('level-label').innerText = getLevel(score);
+        let targetItems = allItems;
+        if (activeFilters.length > 0) {
+            targetItems = allItems.filter(item => {
+                if (!item.tags) return false;
+                const itemTags = item.tags.split(',').map(t => t.trim());
+                return activeFilters.some(filter => itemTags.includes(filter));
+            });
+        }
+        const now = Date.now();
+        const dueCount = targetItems.filter(i => (i.srs?.dueDate || 0) < now).length;
+        document.getElementById('stats-summary').innerText = `Fällig: ${dueCount} | Gesamt: ${targetItems.length}`;
+    }
+
+    // --- SPRACHAUSGABE ---
+    function speak(text) {
+        if (!text) return;
+        window.speechSynthesis.cancel();
+        const ut = new SpeechSynthesisUtterance(text.split('/')[0]);
+        ut.lang = 'sv-SE'; ut.rate = 0.9;
+        window.speechSynthesis.speak(ut);
+    }
+
+    // --- DIFFERENZ ANALYSE ---
+    function getDiffHtml(input, target) {
+        let result = ""; let i = 0, j = 0;
+        const s1 = input.toLowerCase(); const s2 = target.toLowerCase();
+        while (i < s1.length || j < s2.length) {
+            if (i < s1.length && j < s2.length && s1[i] === s2[j]) { result += input[i]; i++; j++; }
+            else if (i < s1.length && j < s2.length && s1[i] !== s2[j]) {
+                if (s1[i+1] === s2[j]) { result += `<span class="err-extra">${input[i]}</span>`; i++; }
+                else if (s1[i] === s2[j+1]) { result += `<span class="err-missing">_</span>`; j++; }
+                else { result += `<span class="err-char">${input[i]}</span>`; i++; j++; }
+            } else if (i < s1.length) { result += `<span class="err-extra">${input[i]}</span>`; i++; }
+            else if (j < s2.length) { result += `<span class="err-missing">_</span>`; j++; }
+        }
+        return result;
+    }
+
+    function getLevenshtein(a, b) {
+        const matrix = Array.from({ length: a.length + 1 }, () => []);
+        for (let i = 0; i <= a.length; i++) matrix[i][0] = i;
+        for (let j = 0; j <= b.length; j++) matrix[0][j] = j;
+        for (let i = 1; i <= a.length; i++) {
+            for (let j = 1; j <= b.length; j++) {
+                const cost = a[i-1] === b[j-1] ? 0 : 1;
+                matrix[i][j] = Math.min(matrix[i-1][j]+1, matrix[i][j-1]+1, matrix[i-1][j-1]+cost);
+            }
+        }
+        return matrix[a.length][b.length];
+    }
+
+    // --- TRAINER LOGIK ---
+    async function checkAnswer() {
+        if (!currentItem) return;
+        const rawInput = document.getElementById('user-input').value;
+        const input = cleanString(rawInput).toLowerCase();
+        const targets = currentItem.termTarget.split('/').map(t => t.trim());
+        const variants = [];
+        targets.forEach(t => {
+            variants.push(cleanString(t.replace(/[()]/g, '')).toLowerCase());
+            let clean = cleanString(t.replace(/\([^)]*\)/g, '')).toLowerCase();
+            if (clean && !variants.includes(clean)) variants.push(clean);
+        });
+        const isCorrect = variants.includes(input);
+        const currentPoints = Math.min((currentItem.srs?.stage || 1) - 1, 5);
+        const newSrs = calculateSRS(currentItem, isCorrect);
+        await db.items.update(currentItem.id, { srs: newSrs });
+        pushToGist();
+        if (currentItem.direction === 'de-sv') speak(currentItem.termTarget); else speak(currentItem.termSource);
+        const fb = document.getElementById('feedback-area');
+        if (isCorrect) {
+            fb.innerHTML = `<span style="color: #4caf50;">Richtig! ${currentPoints < 5 ? "+1" : "+0 (Max)"}</span><br><small>Lösung: ${currentItem.termTarget}</small>`;
+            document.getElementById('check-btn').disabled = true; setTimeout(loadNextItem, 1500);
+        } else {
+            let best = variants[0]; let min = 999;
+            variants.forEach(v => { let s = getLevenshtein(input, v); if (s < min) { min = s; best = v; } });
+            fb.innerHTML = `<span style="color: #ff4444;">Falsch. (-${currentPoints})</span><br>Eingabe: ${getDiffHtml(rawInput.trim(), best)}<br><small>Lösung: ${currentItem.termTarget}</small>`;
+            document.getElementById('check-btn').classList.add('hidden'); document.getElementById('next-btn').classList.remove('hidden');
+        }
+    }
+
+    function calculateSRS(item, correct) {
+        if (!correct) return { stage: 1, dueDate: 0 };
+        let stage = item.srs?.stage || 1;
+        const next = stage + 1;
+        const r = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
+        let ms = (next === 2) ? r(20, 50) * 3600000 : (next === 3) ? r(5, 10) * 86400000 : (next === 4) ? r(12, 16) * 86400000 : r(30, 180) * 86400000;
+        return { stage: next, dueDate: Date.now() + ms };
+    }
+
+    async function loadNextItem() {
+        await updateScoreDisplay();
+        document.getElementById('check-btn').classList.remove('hidden');
+        document.getElementById('next-btn').classList.add('hidden');
+        document.getElementById('check-btn').disabled = false;
+        document.getElementById('user-input').value = ""; 
+        document.getElementById('feedback-area').innerText = "";
+        let allItems = await db.items.toArray();
+        const now = Date.now();
+        if (activeFilters.length > 0) {
+            allItems = allItems.filter(item => {
+                if (!item.tags) return false;
+                const itemTags = item.tags.split(',').map(t => t.trim());
+                return activeFilters.some(filter => itemTags.includes(filter));
+            });
+        }
+        const due = allItems.filter(i => (i.srs?.dueDate || 0) < now);
+        currentItem = due.length > 0 ? due[Math.floor(Math.random() * due.length)] : null;
+        if (currentItem) {
+            const promptEl = document.getElementById('display-prompt');
+            promptEl.innerText = currentItem.termSource;
+            promptEl.style.fontSize = currentItem.termSource.length > 25 ? "1.1rem" : currentItem.termSource.length > 15 ? "1.4rem" : "1.8rem";
+            document.getElementById('display-badges').innerHTML = (currentItem.tags || "").split(',').map(t => `<span class="badge bg-grammar">${t.trim()}</span>`).join('');
+            document.getElementById('direction-label').innerHTML = getProgressIcon(currentItem.srs.stage) + (currentItem.direction === 'de-sv' ? " DE ➔ SV" : " SV ➔ DE");
+        } else {
+            const hasData = (await db.items.count()) > 0;
+            document.getElementById('display-prompt').innerText = hasData ? (activeFilters.length > 0 ? "Keine Vokabeln für diesen Filter fällig!" : "Pause! 🎉") : "Bitte Cloud-Sync nutzen!";
+            document.getElementById('display-badges').innerHTML = ""; document.getElementById('direction-label').innerHTML = "";
+        }
+    }
+
+    // --- VERWALTEN LOGIK ---
+    async function renderList() {
+        const query = document.getElementById('search-input').value.toLowerCase();
+        let items = await db.items.toArray();
+        if (query) items = items.filter(i => i.termSource.toLowerCase().includes(query) || i.termTarget.toLowerCase().includes(query) || (i.tags && i.tags.toLowerCase().includes(query)));
+        document.getElementById('vocab-list').innerHTML = items.map(i => {
+            if (inlineEditingId === i.id) {
+                return `<div class="vocab-item inline-edit-box"><input type="text" id="edit-src-${i.id}" value="${i.termSource}"><input type="text" id="edit-trg-${i.id}" value="${i.termTarget}"><input type="text" id="edit-tags-${i.id}" value="${i.tags || ''}"><div style="display:flex;gap:5px"><button class="action-btn" style="background:#4caf50;padding:5px" onclick="saveInline(${i.id})">OK</button><button class="action-btn" style="background:#666;padding:5px" onclick="inlineEditingId=null;renderList()">X</button></div></div>`;
+            }
+            return `<div class="vocab-item" style="display:flex; justify-content:space-between; align-items:center;"><div><div>${getProgressIcon(i.srs.stage)} <strong>${i.termSource}</strong></div><div style="font-size:0.85rem;opacity:0.8">${i.termTarget}</div></div><div style="display:flex;align-items:center;gap:10px"><span style="font-size:0.75rem">${Math.min((i.srs?.stage || 1)-1, 5)}</span><button class="list-btn" onclick="inlineEditingId=${i.id};renderList()">✎</button><button class="list-btn" style="color:#ff4444" onclick="deleteVocab(${i.id})">✕</button></div></div>`;
+        }).join('');
+    }
+
+    async function saveInline(id) {
+        await db.items.update(id, { termSource: document.getElementById(`edit-src-${id}`).value, termTarget: document.getElementById(`edit-trg-${id}`).value, tags: document.getElementById(`edit-tags-${id}`).value });
+        inlineEditingId = null; pushToGist(); renderList(); updateScoreDisplay();
+    }
+
+    async function deleteVocab(id) {
+        if (confirm("Eintrag löschen?")) { await db.items.delete(id); pushToGist(); renderList(); updateScoreDisplay(); }
+    }
+
+    async function addVocab() {
+        const sv = document.getElementById('input-sv').value.trim();
+        const de = document.getElementById('input-de').value.trim();
+        const tags = document.getElementById('input-tags').value.trim();
+        if (!sv || !de) return;
+        await db.items.bulkAdd([
+            { termSource: de, termTarget: sv, direction: 'de-sv', tags, srs: { stage: 1, dueDate: 0 } },
+            { termSource: sv, termTarget: de, direction: 'sv-de', tags, srs: { stage: 1, dueDate: 0 } }
+        ]);
+        document.getElementById('input-sv').value = ""; document.getElementById('input-de').value = ""; pushToGist(); renderList(); loadNextItem();
+    }
+
+    // --- SYSTEM ---
+    function toggleView() { 
+        const isHidden = document.getElementById('add-view').classList.toggle('hidden'); 
+        document.getElementById('learn-view').classList.toggle('hidden'); 
+        document.getElementById('input-controls').classList.toggle('hidden'); 
+        document.getElementById('viewBtn').innerText = isHidden ? "Verwalten" : "Lernen";
+        if(!isHidden) renderList(); else loadNextItem();
+    }
+
+    async function syncFromGist() {
+        const t = document.getElementById('github-token').value;
+        if(t) localStorage.setItem('github_token', t);
+        try {
+            const res = await fetch(GIST_RAW_URL + '?t=' + Date.now());
+            const data = await res.json();
+            if (data && Array.isArray(data)) { await db.items.clear(); await db.items.bulkAdd(data); location.reload(); }
+        } catch (e) { alert("Sync-Fehler."); loadNextItem(); }
+    }
+
+    async function pushToGist() {
+        const t = localStorage.getItem('github_token');
+        if (!t) return;
+        const all = await db.items.toArray();
+        fetch(`https://api.github.com/gists/${GIST_ID}`, { method: 'PATCH', headers: { 'Authorization': `token ${t}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ files: { 'italienisch-vokabeln.json': { content: JSON.stringify(all, null, 2) } } }) });
+    }
+
+    function exportData() { db.items.toArray().then(items => { const b = new Blob([JSON.stringify(items)], {type: 'application/json'}); const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'backup.json'; a.click(); }); }
+    function importData(e) {
+        const r = new FileReader();
+        r.onload = async (ev) => { const data = JSON.parse(ev.target.result); await db.items.bulkAdd(data); pushToGist(); renderList(); loadNextItem(); };
+        r.readAsText(e.target.files[0]);
+    }
+
+    function toggleTheme() {
+        const d = document.body.classList.toggle('dark-mode');
+        localStorage.setItem('theme', d ? 'dark' : 'light');
+        document.getElementById('theme-toggle').innerText = d ? '☀️' : '🌙';
+    }
+
+    function getProgressIcon(s = 1) {
+        const colors = ['#ff4444', '#ff9800', '#ffeb3b', '#90EE90', '#006400'];
+        const c = Math.min(Math.max(s - 1, 0), 5);
+        let svg = `<svg width="16" height="8" viewBox="0 0 7.5 4" style="margin-right:6px">`;
+        for (let i = 0; i < 5; i++) svg += `<rect x="${i*1.5}" y="${4-(i+1)*0.8}" width="1" height="${(i+1)*0.8}" fill="${i<c ? colors[i] : '#444'}" />`;
+        return svg + `</svg>`;
+    }
+
+    if(localStorage.getItem('theme') === 'dark') { document.body.classList.add('dark-mode'); document.getElementById('theme-toggle').innerText = '☀️'; }
+    document.getElementById('github-token').value = localStorage.getItem('github_token') || "";
+    db.items.count().then(c => { if(c === 0 && localStorage.getItem('github_token')) syncFromGist(); else loadNextItem(); });
+</script>
+</body>
+</html>
