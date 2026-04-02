@@ -1,14 +1,14 @@
 {
-  "name": "Italienisch Trainer",
-  "short_name": "Italienisch",
+  "name": "Italiano Trainer",
+  "short_name": "Italiano",
   "start_url": "index.html",
   "display": "standalone",
   "background_color": "#f4f4f4",
-  "theme_color": "#0051a8",
+  "theme_color": "#008C45",
   "icons": [
     {
-      "src": "https://flagcdn.com/w320/it.png",
-      "sizes": "320x213",
+      "src": "https://cdn-icons-png.flaticon.com/512/197/197626.png",
+      "sizes": "512x512",
       "type": "image/png"
     }
   ]
