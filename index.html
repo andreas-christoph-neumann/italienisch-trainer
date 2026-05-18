@@ -103,15 +103,18 @@
 <script>
     // ============================================================
     // HIER DEINE ITALIENISCH-GIST-ID EINTRAGEN:
-    const GIST_ID = 'eedc40fea52096a0e1167c3eba4c34ff'; 
+    const GIST_ID = 'HIER_DEINE_NEUE_GIST_ID_EINTRAGEN'; 
     // ============================================================
 
-    // Eigene Datenbank — getrennt vom Schwedisch-Trainer
     const db = new Dexie('ItalianTrainerDB');
     db.version(1).stores({ items: '++id, termSource, termTarget, direction, tags, srs.dueDate' });
 
-    // Eigener localStorage-Schlüssel für den Token
     const TOKEN_KEY = 'github_token_it';
+
+    // SRS-Intervalle in Tagen für Stufe 0–10
+    const SRS_INTERVALS = [0, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512];
+    const SRS_MAX = 10;
+    const SRS_DROP = 3;
 
     let currentItem = null, inlineEditingId = null, activeFilters = [];
     let syncTimer = null;
@@ -164,10 +167,11 @@
     }
 
     async function updateScoreDisplay() {
-        const all = await db.items.toArray(); const pts = all.reduce((s, i) => s + Math.min((i.srs?.stage || 1)-1, 5), 0);
+        const all = await db.items.toArray();
+        const pts = all.reduce((s, i) => s + (i.srs?.stage || 0), 0);
         document.getElementById('score-label').innerText = pts.toLocaleString(); document.getElementById('level-label').innerText = getLevel(pts);
         let target = activeFilters.length > 0 ? all.filter(i => i.tags && activeFilters.some(f => i.tags.split(',').map(x=>x.trim()).includes(f))) : all;
-        const now = Date.now(); document.getElementById('stats-summary').innerText = `Fällig: ${target.filter(i=>(i.srs?.dueDate||0)<now).length} | Gesamt: ${target.length}`;
+        const now = Date.now(); document.getElementById('stats-summary').innerText = `Fällig: ${target.filter(i=>(i.srs?.dueDate||0)<=now).length} | Gesamt: ${target.length}`;
     }
 
     function speak(t) { if(!t) return; window.speechSynthesis.cancel(); const ut = new SpeechSynthesisUtterance(t.split('/')[0]); ut.lang='it-IT'; ut.rate=0.9; window.speechSynthesis.speak(ut); }
@@ -186,22 +190,34 @@
         if(!currentItem) return; const raw=document.getElementById('user-input').value; const inp=cleanString(raw).toLowerCase();
         const targets=currentItem.termTarget.split('/').map(t=>t.trim()), variants=[];
         targets.forEach(t=>{ variants.push(cleanString(t.replace(/[()]/g,'')).toLowerCase()); let c=cleanString(t.replace(/\([^)]*\)/g,'')).toLowerCase(); if(c&&!variants.includes(c)) variants.push(c); });
-        const isCorrect=variants.includes(inp), curPts=Math.min((currentItem.srs?.stage||1)-1,5), newSrs=calculateSRS(currentItem,isCorrect);
+        const isCorrect=variants.includes(inp);
+        const oldStage = currentItem.srs?.stage || 0;
+        const newSrs = calculateSRS(currentItem, isCorrect);
+        const stageLoss = oldStage - newSrs.stage;
         await db.items.update(currentItem.id,{srs:newSrs}); pushToGist();
         if(currentItem.direction==='de-it') speak(currentItem.termTarget); else speak(currentItem.termSource);
         const fb=document.getElementById('feedback-area');
         if(isCorrect){ fb.innerHTML=`<span style="color:#4caf50;">Richtig! +1</span><br><small>Lösung: ${esc(currentItem.termTarget)}</small>`; document.getElementById('check-btn').disabled=true; setTimeout(loadNextItem, 1500); }
-        else { let b=variants[0], m=999; variants.forEach(v=>{let s=getLevenshtein(inp,v); if(s<m){m=s; b=v;}}); fb.innerHTML=`<span style="color:#ff4444;">Falsch. (-${curPts})</span><br>Eingabe: ${getDiffHtml(raw.trim(),b)}<br><small>Lösung: ${esc(currentItem.termTarget)}</small>`; document.getElementById('check-btn').classList.add('hidden'); document.getElementById('next-btn').classList.remove('hidden'); }
+        else { let b=variants[0], m=999; variants.forEach(v=>{let s=getLevenshtein(inp,v); if(s<m){m=s; b=v;}}); fb.innerHTML=`<span style="color:#ff4444;">Falsch. (−${stageLoss})</span><br>Eingabe: ${getDiffHtml(raw.trim(),b)}<br><small>Lösung: ${esc(currentItem.termTarget)}</small>`; document.getElementById('check-btn').classList.add('hidden'); document.getElementById('next-btn').classList.remove('hidden'); }
     }
 
-    function calculateSRS(i,c){ if(!c) return {stage:1,dueDate:0}; let s=i.srs?.stage||1; const n=s+1, r=(min,max)=>Math.floor(Math.random()*(max-min+1))+min; let ms=(n===2)?r(20,50)*3600000:(n===3)?r(5,10)*86400000:(n===4)?r(12,16)*86400000:r(30,180)*86400000; return {stage:n,dueDate:Date.now()+ms}; }
+    // SRS: 11 Stufen (0–10), feste Intervalle
+    function calculateSRS(item, correct) {
+        const cur = item.srs?.stage || 0;
+        if (!correct) {
+            const newStage = Math.max(0, cur - SRS_DROP);
+            return { stage: newStage, dueDate: 0 };
+        }
+        const newStage = Math.min(SRS_MAX, cur + 1);
+        return { stage: newStage, dueDate: Date.now() + SRS_INTERVALS[newStage] * 86400000 };
+    }
 
     async function loadNextItem() {
         await updateScoreDisplay(); document.getElementById('check-btn').classList.remove('hidden'); document.getElementById('next-btn').classList.add('hidden'); document.getElementById('check-btn').disabled=false; document.getElementById('user-input').value=""; document.getElementById('feedback-area').innerText="";
         let items=await db.items.toArray(); const now=Date.now();
         if(activeFilters.length>0) items=items.filter(i=>i.tags && activeFilters.some(f=>i.tags.split(',').map(x=>x.trim()).includes(f)));
-        const due=items.filter(i=>(i.srs?.dueDate||0)<now); currentItem=due.length>0?due[Math.floor(Math.random()*due.length)]:null;
-        if(currentItem){ const p=document.getElementById('display-prompt'); p.innerText=currentItem.termSource; p.style.fontSize=currentItem.termSource.length>25?"1.1rem":currentItem.termSource.length>15?"1.4rem":"1.8rem"; document.getElementById('display-badges').innerHTML=(currentItem.tags||"").split(',').map(t=>`<span class="badge bg-grammar">${esc(t.trim())}</span>`).join(''); document.getElementById('direction-label').innerHTML=getProgressIcon(currentItem.srs?.stage||1)+(currentItem.direction==='de-it'?" DE ➔ IT":" IT ➔ DE"); }
+        const due=items.filter(i=>(i.srs?.dueDate||0)<=now); currentItem=due.length>0?due[Math.floor(Math.random()*due.length)]:null;
+        if(currentItem){ const p=document.getElementById('display-prompt'); p.innerText=currentItem.termSource; p.style.fontSize=currentItem.termSource.length>25?"1.1rem":currentItem.termSource.length>15?"1.4rem":"1.8rem"; document.getElementById('display-badges').innerHTML=(currentItem.tags||"").split(',').map(t=>`<span class="badge bg-grammar">${esc(t.trim())}</span>`).join(''); document.getElementById('direction-label').innerHTML=getProgressIcon(currentItem.srs?.stage||0)+(currentItem.direction==='de-it'?" DE ➔ IT":" IT ➔ DE"); }
         else { const has=(await db.items.count()) > 0; document.getElementById('display-prompt').innerText=has?(activeFilters.length>0?"Filter aktiv!":"Pause! 🎉"):"Bitte Cloud-Sync nutzen!"; document.getElementById('display-badges').innerHTML=""; document.getElementById('direction-label').innerHTML=""; }
     }
 
@@ -214,11 +230,11 @@
 
     async function renderList() {
         const q=document.getElementById('search-input').value.toLowerCase(); let items=await db.items.toArray(); if(q) items=items.filter(i=>i.termSource.toLowerCase().includes(q)||i.termTarget.toLowerCase().includes(q)||(i.tags&&i.tags.toLowerCase().includes(q)));
-        document.getElementById('vocab-list').innerHTML=items.map(i=>{ if(inlineEditingId===i.id) return `<div class="vocab-item inline-edit-box"><input type="text" id="edit-src-${i.id}" value="${esc(i.termSource)}"><input type="text" id="edit-trg-${i.id}" value="${esc(i.termTarget)}"><input type="text" id="edit-tags-${i.id}" value="${esc(i.tags||'')}"><div style="display:flex;gap:5px"><button class="action-btn" style="background:#4caf50;padding:5px" onclick="saveInline(${i.id})">OK</button><button class="action-btn" style="background:#666;padding:5px" onclick="inlineEditingId=null;renderList()">X</button></div></div>`; return `<div class="vocab-item" style="display:flex;justify-content:space-between;align-items:center;"><div><div>${getProgressIcon(i.srs?.stage||1)} <strong>${esc(i.termSource)}</strong></div><div style="font-size:0.85rem;opacity:0.8">${esc(i.termTarget)}</div></div><div style="display:flex;align-items:center;gap:10px"><span style="font-size:0.75rem">${Math.min((i.srs?.stage||1)-1, 5)}</span><button class="list-btn" onclick="inlineEditingId=${i.id};renderList()">✎</button><button class="list-btn" style="color:#ff4444" onclick="deleteVocab(${i.id})">✕</button></div></div>`; }).join('');
+        document.getElementById('vocab-list').innerHTML=items.map(i=>{ if(inlineEditingId===i.id) return `<div class="vocab-item inline-edit-box"><input type="text" id="edit-src-${i.id}" value="${esc(i.termSource)}"><input type="text" id="edit-trg-${i.id}" value="${esc(i.termTarget)}"><input type="text" id="edit-tags-${i.id}" value="${esc(i.tags||'')}"><div style="display:flex;gap:5px"><button class="action-btn" style="background:#4caf50;padding:5px" onclick="saveInline(${i.id})">OK</button><button class="action-btn" style="background:#666;padding:5px" onclick="inlineEditingId=null;renderList()">X</button></div></div>`; return `<div class="vocab-item" style="display:flex;justify-content:space-between;align-items:center;"><div><div>${getProgressIcon(i.srs?.stage||0)} <strong>${esc(i.termSource)}</strong></div><div style="font-size:0.85rem;opacity:0.8">${esc(i.termTarget)}</div></div><div style="display:flex;align-items:center;gap:10px"><button class="list-btn" onclick="inlineEditingId=${i.id};renderList()">✎</button><button class="list-btn" style="color:#ff4444" onclick="deleteVocab(${i.id})">✕</button></div></div>`; }).join('');
     }
     async function saveInline(id){ await db.items.update(id,{termSource:document.getElementById(`edit-src-${id}`).value,termTarget:document.getElementById(`edit-trg-${id}`).value,tags:document.getElementById(`edit-tags-${id}`).value}); inlineEditingId=null; pushToGist(); renderList(); updateScoreDisplay(); }
     async function deleteVocab(id){ if(confirm("Löschen?")){ await db.items.delete(id); pushToGist(); renderList(); updateScoreDisplay(); } }
-    async function addVocab() { const it=document.getElementById('input-it').value.trim(), de=document.getElementById('input-de').value.trim(), tags=document.getElementById('input-tags').value.trim(); if(!it||!de) return; await db.items.bulkAdd([{termSource:de,termTarget:it,direction:'de-it',tags,srs:{stage:1,dueDate:0}},{termSource:it,termTarget:de,direction:'it-de',tags,srs:{stage:1,dueDate:0}}]); document.getElementById('input-it').value=""; document.getElementById('input-de').value=""; document.getElementById('input-tags').value=""; pushToGist(); renderList(); loadNextItem(); }
+    async function addVocab() { const it=document.getElementById('input-it').value.trim(), de=document.getElementById('input-de').value.trim(), tags=document.getElementById('input-tags').value.trim(); if(!it||!de) return; await db.items.bulkAdd([{termSource:de,termTarget:it,direction:'de-it',tags,srs:{stage:0,dueDate:0}},{termSource:it,termTarget:de,direction:'it-de',tags,srs:{stage:0,dueDate:0}}]); document.getElementById('input-it').value=""; document.getElementById('input-de').value=""; document.getElementById('input-tags').value=""; pushToGist(); renderList(); loadNextItem(); }
 
     async function syncFromGist() {
         const t = document.getElementById('github-token').value || localStorage.getItem(TOKEN_KEY); 
@@ -272,7 +288,22 @@
     function exportData(){ db.items.toArray().then(i=>{ const b=new Blob([JSON.stringify(i)],{type:'application/json'}), a=document.createElement('a'); a.href=URL.createObjectURL(b); a.download='italiano-backup.json'; a.click(); }); }
     function importData(e){ const r = new FileReader(); r.onload=async(ev)=>{ const d=JSON.parse(ev.target.result); await db.items.bulkAdd(d); pushToGist(); renderList(); loadNextItem(); }; r.readAsText(e.target.files[0]); }
     function toggleTheme(){ const d = document.body.classList.toggle('dark-mode'); localStorage.setItem('theme_it',d?'dark':'light'); document.getElementById('theme-toggle').innerText=d?'☀️':'🌙'; }
-    function getProgressIcon(s=1){ const c=['#ff4444','#ff9800','#ffeb3b','#90EE90','#006400']; const count=Math.min(Math.max(s-1,0),5); let svg=`<svg width="16" height="8" viewBox="0 0 7.5 4" style="margin-right:6px">`; for(let i=0;i<5;i++) svg+=`<rect x="${i*1.5}" y="${4-(i+1)*0.8}" width="1" height="${(i+1)*0.8}" fill="${i<count?c[i]:'#444'}"/>`; return svg+`</svg>`; }
+
+    // Kreisdiagramm mit Zahl (Stufe 0–10)
+    function getProgressIcon(stage) {
+        const s = stage || 0;
+        const r = 9, cx = 12, cy = 12;
+        const circ = Math.round(2 * Math.PI * r * 10) / 10;
+        const offset = s === 0 ? circ : Math.round((circ - (s / SRS_MAX) * circ) * 10) / 10;
+        const ratio = s / SRS_MAX;
+        let color = '#888';
+        if (s > 0 && ratio <= 0.2) color = '#ff4444';
+        else if (ratio <= 0.4) color = '#ff9800';
+        else if (ratio <= 0.6) color = '#e6c619';
+        else if (ratio <= 0.8) color = '#66bb6a';
+        else if (s > 0) color = '#006400';
+        return `<svg width="24" height="24" viewBox="0 0 24 24" style="margin-right:6px;vertical-align:middle"><circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#888" stroke-width="2.5" opacity="0.2"/>${s > 0 ? `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${color}" stroke-width="2.5" stroke-dasharray="${circ}" stroke-dashoffset="${offset}" stroke-linecap="round" transform="rotate(-90 ${cx} ${cy})"/>` : ''}<text x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="central" style="font-size:8px;font-weight:bold" fill="currentColor">${s}</text></svg>`;
+    }
 
     if(localStorage.getItem('theme_it')==='dark') { document.body.classList.add('dark-mode'); document.getElementById('theme-toggle').innerText='☀️'; }
     document.getElementById('github-token').value=localStorage.getItem(TOKEN_KEY)||""; checkTokenState();
@@ -290,7 +321,7 @@
         }
     });
 
-    db.items.count().then(c=>{ if(c===0 && localStorage.getItem(TOKEN_KEY)) syncFromGist(); else loadNextItem(); });
+    db.items.count().then(c => { if(c===0 && localStorage.getItem(TOKEN_KEY)) syncFromGist(); else loadNextItem(); });
 </script>
 </body>
 </html>
